@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Flashcards – Lunfardo Argentino (ES ↔ EN)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-gradient-to-b from-white to-gray-50">
+    <div id="root" class="p-6 md:p-10"></div>
+
+    <!-- React + ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <script type="text/babel">
+      const { useMemo, useState, useEffect } = React;
+
+      // --- Robust Spanish TTS (prefers es-AR, then es-ES/es-MX, then any es-*) ---
+      function speakES(text){
+        try{
+          if (!('speechSynthesis' in window)) return;
+          const synth = window.speechSynthesis;
+          const speakNow = () => {
+            const voices = synth.getVoices();
+            const pick = voices.find(v=>/es-AR/i.test(v.lang))
+              || voices.find(v=>/es-ES/i.test(v.lang))
+              || voices.find(v=>/es-MX/i.test(v.lang))
+              || voices.find(v=>/^es(-|_)?/i.test(v.lang));
+            const u = new SpeechSynthesisUtterance(text);
+            if (pick) { u.voice = pick; u.lang = pick.lang; } else { u.lang = 'es-AR'; }
+            u.rate = 1;
+            synth.speak(u);
+          };
+          if (!synth.getVoices().length) {
+            synth.onvoiceschanged = () => { speakNow(); synth.onvoiceschanged = null; };
+          } else {
+            speakNow();
+          }
+        }catch(e){}
+      }
+
+      // =============================
+      // DATASET – Lunfardo Argentino
+      // =============================
+      const DATA = [
+        { es: "che", en: "hey (to get attention)", exEs: "Che, ¿venís?", exEn: "Hey, you coming?", cats: ["greetings"], note: "Muy común, informal." },
+        { es: "boludo/boluda", en: "dude / idiot (context: friendly or insult)", exEs: "Dale, boludo, apurate.", exEn: "Come on, dude, hurry up.", cats: ["people","tone"], note: "Puede ser afectuoso o insulto según tono." },
+        { es: "posta", en: "for real, seriously", exEs: "¿Posta? No lo puedo creer.", exEn: "For real? I can't believe it.", cats: ["fillers"], note: "Énfasis de verdad." },
+        { es: "viste", en: "you know? / right? (tag)", exEs: "Es caro, viste.", exEn: "It's expensive, you know.", cats: ["fillers"], note: "Coletilla muy usada." },
+        { es: "de una", en: "sure! / right away", exEs: "¿Vamos ahora? De una.", exEn: "Shall we go now? For sure.", cats: ["agreement"], note: "Aprobación rápida." },
+        { es: "re- (prefijo)", en: "super / very", exEs: "Está re lindo.", exEn: "It's super nice.", cats: ["intensifier"], note: "Prefijo intensificador." },
+        { es: "mal (adverbial)", en: "totally / a lot (emphasis)", exEs: "Me gusta mal.", exEn: "I like it a lot / so much.", cats: ["intensifier"], note: "No es 'bad' aquí." },
+        { es: "alto/terrible (positivo)", en: "awesome / great (ironic literal)", exEs: "Alta pizza / Terrible show.", exEn: "Awesome pizza / Great show.", cats: ["intensifier"], note: "Uso positivo." },
+        { es: "ni en pedo", en: "no way / not a chance", exEs: "¿Te levantás a las 5? Ni en pedo.", exEn: "Wake up at 5? No way.", cats: ["tone"], note: "Vulgar, informal." },
+        { es: "ni a palos", en: "no way at all", exEs: "Con este frío, ni a palos.", exEn: "With this cold? No way.", cats: ["tone"], note: "Informal." },
+
+        { es: "laburar", en: "to work", exEs: "Mañana laburo temprano.", exEn: "I work early tomorrow.", cats: ["work"], note: "Verbo coloquial." },
+        { es: "guita", en: "money, cash", exEs: "No tengo guita.", exEn: "I don't have money.", cats: ["money"], note: "Muy común." },
+        { es: "mango", en: "buck, peso (money)", exEs: "No me alcanza un mango.", exEn: "I don't have a buck.", cats: ["money"], note: "Singular / plural flexible." },
+        { es: "garpar", en: "to pay (informal)", exEs: "¿Me garpás el viaje?", exEn: "Can you pay for the ride?", cats: ["money"], note: "Verbo coloquial." },
+        { es: "changa", en: "odd job / side gig", exEs: "Hago changas los fines de semana.", exEn: "I do odd jobs on weekends.", cats: ["work"], note: "Trabajo informal." },
+
+        { es: "quilombo", en: "mess / chaos / trouble", exEs: "Este cuarto es un quilombo.", exEn: "This room is a mess.", cats: ["problems"], note: "Puede ser vulgar." },
+        { es: "bardo", en: "trouble / ruckus", exEs: "Se armó bardo en la puerta.", exEn: "There was trouble at the entrance.", cats: ["problems"], note: "Situación conflictiva." },
+        { es: "bardear", en: "to insult / trash talk", exEs: "No me bardees.", exEn: "Don't trash talk me.", cats: ["problems"], note: "Verbo de conflicto." },
+        { es: "garrón", en: "a drag / bummer", exEs: "Qué garrón perder el bondi.", exEn: "What a bummer to miss the bus.", cats: ["problems"], note: "Situación mala." },
+        { es: "bajón", en: "downer / craving (context)", exEs: "Me pintó un bajón de dulce.", exEn: "I got a sweet craving.", cats: ["feelings"], note: "Tristeza o antojo." },
+
+        { es: "pibe/piba", en: "kid / boy, girl", exEs: "El pibe de la esquina.", exEn: "The kid from the corner.", cats: ["people"], note: "Muy común." },
+        { es: "flaco/flaca", en: "dude / guy / girl (vocative)", exEs: "Che, flaco, esperá.", exEn: "Hey, dude, wait.", cats: ["people"], note: "Puede ser afectuoso." },
+        { es: "chabón/chabona", en: "guy / dude (neutral)", exEs: "Ese chabón es capo.", exEn: "That guy is great.", cats: ["people"], note: "Informal." },
+        { es: "mina", en: "girl / woman (colloq.)", exEs: "Esa mina canta bien.", exEn: "That girl sings well.", cats: ["people"], note: "Coloquial." },
+        { es: "gil", en: "fool / sucker", exEs: "No seas gil.", exEn: "Don't be a fool.", cats: ["people","tone"], note: "Puede ser insulto." },
+        { es: "capo", en: "awesome / great guy", exEs: "Sos un capo.", exEn: "You're awesome.", cats: ["compliments"], note: "Aprobación fuerte." },
+
+        { es: "bondi", en: "bus", exEs: "Me tomo el bondi.", exEn: "I take the bus.", cats: ["transport"], note: "También 'colectivo'." },
+        { es: "subte", en: "subway / metro", exEs: "Voy en subte.", exEn: "I'm going by subway.", cats: ["transport"], note: "Capital Federal." },
+        { es: "kiosco", en: "corner shop / kiosk", exEs: "Bajo al kiosco.", exEn: "I'm going down to the kiosk.", cats: ["places"], note: "Tienda pequeña." },
+        { es: "boliche", en: "club / nightclub", exEs: "Vamos al boliche.", exEn: "Let's go to the club.", cats: ["places"], note: "Vida nocturna." },
+
+        { es: "birra", en: "beer", exEs: "Tomamos una birra.", exEn: "We had a beer.", cats: ["food"], note: "Muy común." },
+        { es: "fernet", en: "Fernet (herbal liquor, often with cola)", exEs: "Un fernet con coca.", exEn: "A fernet with coke.", cats: ["food"], note: "Bebida típica." },
+        { es: "mate", en: "mate (infusion)", exEs: "Tomamos mate.", exEn: "We drank mate.", cats: ["food"], note: "Símbolo nacional." },
+        { es: "bombilla", en: "metal straw for mate", exEs: "Lavá la bombilla.", exEn: "Wash the metal straw.", cats: ["food"], note: "Accesorio del mate." },
+        { es: "facturas", en: "pastries", exEs: "Compré facturas.", exEn: "I bought pastries.", cats: ["food"], note: "Medialunas, etc." },
+        { es: "asado", en: "barbecue", exEs: "Hicimos asado.", exEn: "We had a barbecue.", cats: ["food"], note: "Parrillada." },
+
+        { es: "chamuyar", en: "to sweet-talk / flirt / persuade", exEs: "Dejá de chamuyar.", exEn: "Stop sweet-talking.", cats: ["social"], note: "También 'flirtear'." },
+        { es: "bancar", en: "to support / to put up with / to cover (pay)", exEs: "Te banco en esa.", exEn: "I support you on that.", cats: ["social","money"], note: "Muchos sentidos." },
+        { es: "cortar", en: "to break up", exEs: "Cortamos ayer.", exEn: "We broke up yesterday.", cats: ["social"], note: "Relaciones." },
+        { es: "onda", en: "vibe / style", exEs: "Tiene buena onda.", exEn: "They've got good vibe.", cats: ["social"], note: "Positivo/negativo." },
+        { es: "pintar (ganas)", en: "to feel like / to be up for", exEs: "¿Pinta peli?", exEn: "Feel like a movie?", cats: ["social"], note: "Uso impersonal." },
+
+        { es: "rascarse", en: "to loaf around / do nothing", exEs: "Me rasqué todo el día.", exEn: "I did nothing all day.", cats: ["feelings"], note: "Informal." },
+        { es: "afanar", en: "to steal (slang)", exEs: "Le afanaron el celu.", exEn: "They stole his phone.", cats: ["problems"], note: "Vulgar/coloquial." }
+      ];
+
+      const CATS = [
+        { id: "greetings", label: "Greetings & Fillers" },
+        { id: "fillers", label: "Fillers" },
+        { id: "agreement", label: "Agreement" },
+        { id: "intensifier", label: "Intensifiers" },
+        { id: "tone", label: "Tone / Strong" },
+        { id: "work", label: "Work" },
+        { id: "money", label: "Money" },
+        { id: "problems", label: "Problems" },
+        { id: "feelings", label: "Feelings" },
+        { id: "people", label: "People" },
+        { id: "compliments", label: "Compliments" },
+        { id: "transport", label: "Transport" },
+        { id: "places", label: "Places" },
+        { id: "food", label: "Food & Drink" },
+        { id: "social", label: "Social" },
+      ];
+
+      function shuffle(a){ const c=[...a]; for(let i=c.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1)); [c[i],c[j]]=[c[j],c[i]];} return c; }
+
+      function useLocalStorage(key, def){
+        const [st,setSt]=React.useState(()=>{ try{const v=localStorage.getItem(key); return v?JSON.parse(v):def;}catch{return def;}});
+        React.useEffect(()=>{ try{localStorage.setItem(key, JSON.stringify(st));}catch{} },[key,st]);
+        return [st,setSt];
+      }
+
+      const Badge = ({children}) => <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-gray-100 border">{children}</span>;
+
+      function Card({ item, showBack, onFlip }){
+        return (
+          <div className="rounded-2xl border shadow bg-white p-6">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-sm text-gray-500">{showBack? 'Meaning' : 'Lunfardo'}</div>
+              <div className="flex gap-2">{item.cats?.slice(0,3).map(c=> <Badge key={c}>{c}</Badge>)}</div>
+            </div>
+            {!showBack ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <div className="text-3xl font-semibold">{item.es}</div>
+                  <button onClick={()=>speakES(item.es)} title="Escuchar (ES)" className="px-2 py-1 rounded-lg bg-gray-100 hover:bg-gray-200">🔊</button>
+                </div>
+                {item.note && <div className="text-sm text-gray-600">{item.note}</div>}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="text-2xl font-semibold">{item.en}</div>
+                <div className="mt-2 p-3 rounded-xl bg-gray-50 border">
+                  <div className="text-sm text-gray-500 mb-1">Example</div>
+                  <div className="font-medium">ES: {item.exEs}</div>
+                  <div className="opacity-80">EN: {item.exEn}</div>
+                </div>
+              </div>
+            )}
+            <div className="mt-4 flex gap-2">
+              <button onClick={onFlip} className="px-4 py-2 rounded-xl shadow bg-blue-600 text-white">{showBack? 'Front' : 'Show meaning'}</button>
+              {!showBack && <button onClick={()=>speakES(item.es)} className="px-4 py-2 rounded-xl shadow bg-gray-100" title="Escuchar (ES)">🔊</button>}
+            </div>
+          </div>
+        );
+      }
+
+      function App(){
+        const [query, setQuery] = useLocalStorage('lunf_q','');
+        const [activeCats, setActiveCats] = useLocalStorage('lunf_cats', CATS.map(c=>c.id));
+        const [index, setIndex] = useLocalStorage('lunf_idx', 0);
+        const [back, setBack] = useLocalStorage('lunf_back', false);
+
+        useEffect(()=>{ if ('speechSynthesis' in window) window.speechSynthesis.getVoices(); }, []);
+
+        const data = React.useMemo(()=>{
+          const q = query.trim().toLowerCase();
+          let arr = DATA.filter(d => d.cats.some(c=>activeCats.includes(c)));
+          if(q){ arr = arr.filter(d=> d.es.toLowerCase().includes(q) || d.en.toLowerCase().includes(q) || d.exEs.toLowerCase().includes(q) || d.exEn.toLowerCase().includes(q)); }
+          return arr;
+        },[query, activeCats]);
+
+        React.useEffect(()=>{ if(index>=data.length) setIndex(0); },[data.length]);
+
+        const next = ()=>{ setBack(false); setIndex( (index+1) % (data.length || 1) ); };
+        const prev = ()=>{ setBack(false); setIndex( (index-1 + (data.length||1)) % (data.length||1) ); };
+        const flip = ()=> setBack(b=>!b);
+        const shuffleNow = ()=>{ setIndex(Math.floor(Math.random() * (data.length||1))); setBack(false); };
+
+        const toggleCat = (id)=>{
+          setIndex(0); setBack(false);
+          setActiveCats(acs => acs.includes(id) ? acs.filter(x=>x!==id) : [...acs, id]);
+        };
+
+        const current = data[index];
+
+        return (
+          <div className="max-w-5xl mx-auto space-y-6">
+            <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <h1 className="text-2xl md:text-3xl font-bold">🇦🇷 Flashcards – Lunfardo Argentino (ES ↔ EN)</h1>
+              <div className="flex gap-2">
+                <button onClick={prev} className="px-3 py-2 rounded-xl bg-gray-100 border">⟵</button>
+                <button onClick={flip} className="px-3 py-2 rounded-xl bg-blue-600 text-white">Flip</button>
+                <button onClick={next} className="px-3 py-2 rounded-xl bg-gray-100 border">⟶</button>
+              </div>
+            </header>
+
+            <section className="rounded-2xl border bg-white p-4 md:p-6 shadow">
+              <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
+                <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search: 'boludo', 'mate', 'money'…" className="w-full md:w-96 px-3 py-2 rounded-xl border"/>
+                <div className="text-sm text-gray-600">{data.length} cards • {Math.min(index+1, Math.max(data.length,1))}/{Math.max(data.length,1)}</div>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {CATS.map(c => (
+                  <button key={c.id} onClick={()=>toggleCat(c.id)} className={`px-3 py-1 rounded-full border ${activeCats.includes(c.id)?'bg-blue-100':'bg-white'}`}>{c.label}</button>
+                ))}
+                <button onClick={shuffleNow} className="ml-auto px-3 py-1 rounded-full border bg-gray-50">Shuffle</button>
+              </div>
+            </section>
+
+            <section>
+              {current ? (
+                <>
+                  <Card item={current} showBack={back} onFlip={flip} />
+                  <div className="mt-4 flex items-center gap-2 justify-center">
+                    <button onClick={prev} className="px-4 py-2 rounded-xl bg-gray-100 border">⟵ Previous</button>
+                    <button onClick={flip} className="px-4 py-2 rounded-xl bg-blue-600 text-white">Flip</button>
+                    <button onClick={next} className="px-4 py-2 rounded-xl bg-gray-100 border">Next ⟶</button>
+                    <button onClick={()=>current && speakES(current.es)} className="px-4 py-2 rounded-xl bg-gray-100 border" title="Escuchar (ES)">🔊</button>
+                  </div>
+                </>
+              ) : (
+                <div className="p-6 rounded-2xl border bg-white text-gray-600">No cards with these filters.</div>
+              )}
+            </section>
+
+            <footer className="text-xs text-gray-500">Only flashcards (no extra games). Slang varies by region/tone; use context.</footer>
+          </div>
+        );
+      }
+
+      const root = ReactDOM.createRoot(document.getElementById('root'));
+      root.render(<App />);
+    </script>
+  </body>
+</html>
