@@ -1,26 +1,28 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Flashcards – Lunfardo Argentino (ES ↔ EN)</title>
+    <title>Lunfardo Flashcards — SRS + Categories + Stats (Offline)</title>
     <script src="https://cdn.tailwindcss.com"></script>
   </head>
   <body class="min-h-screen bg-gradient-to-b from-white to-gray-50">
     <div id="root" class="p-6 md:p-10"></div>
 
-    <!-- React + ReactDOM -->
+    <!-- React + ReactDOM + Babel + Dexie + Chart.js -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/dexie@3.2.4/dist/dexie.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <script type="text/babel">
-      const { useMemo, useState, useEffect } = React;
+      const { useMemo, useState, useEffect, useRef } = React;
 
-      // --- Robust Spanish TTS (prefers es-AR, then es-ES/es-MX, then any es-*) ---
+      // ---- Robust Spanish TTS ----
       function speakES(text){
         try{
-          if (!('speechSynthesis' in window)) return;
+          if(!('speechSynthesis' in window)) return;
           const synth = window.speechSynthesis;
           const speakNow = () => {
             const voices = synth.getVoices();
@@ -33,7 +35,7 @@
             u.rate = 1;
             synth.speak(u);
           };
-          if (!synth.getVoices().length) {
+          if(!synth.getVoices().length){
             synth.onvoiceschanged = () => { speakNow(); synth.onvoiceschanged = null; };
           } else {
             speakNow();
@@ -41,85 +43,204 @@
         }catch(e){}
       }
 
-      // =============================
-      // DATASET – Lunfardo Argentino
-      // =============================
-      const DATA = [
-        { es: "che", en: "hey (to get attention)", exEs: "Che, ¿venís?", exEn: "Hey, you coming?", cats: ["greetings"], note: "Muy común, informal." },
-        { es: "boludo/boluda", en: "dude / idiot (context: friendly or insult)", exEs: "Dale, boludo, apurate.", exEn: "Come on, dude, hurry up.", cats: ["people","tone"], note: "Puede ser afectuoso o insulto según tono." },
-        { es: "posta", en: "for real, seriously", exEs: "¿Posta? No lo puedo creer.", exEn: "For real? I can't believe it.", cats: ["fillers"], note: "Énfasis de verdad." },
-        { es: "viste", en: "you know? / right? (tag)", exEs: "Es caro, viste.", exEn: "It's expensive, you know.", cats: ["fillers"], note: "Coletilla muy usada." },
-        { es: "de una", en: "sure! / right away", exEs: "¿Vamos ahora? De una.", exEn: "Shall we go now? For sure.", cats: ["agreement"], note: "Aprobación rápida." },
-        { es: "re- (prefijo)", en: "super / very", exEs: "Está re lindo.", exEn: "It's super nice.", cats: ["intensifier"], note: "Prefijo intensificador." },
-        { es: "mal (adverbial)", en: "totally / a lot (emphasis)", exEs: "Me gusta mal.", exEn: "I like it a lot / so much.", cats: ["intensifier"], note: "No es 'bad' aquí." },
-        { es: "alto/terrible (positivo)", en: "awesome / great (ironic literal)", exEs: "Alta pizza / Terrible show.", exEn: "Awesome pizza / Great show.", cats: ["intensifier"], note: "Uso positivo." },
-        { es: "ni en pedo", en: "no way / not a chance", exEs: "¿Te levantás a las 5? Ni en pedo.", exEn: "Wake up at 5? No way.", cats: ["tone"], note: "Vulgar, informal." },
-        { es: "ni a palos", en: "no way at all", exEs: "Con este frío, ni a palos.", exEn: "With this cold? No way.", cats: ["tone"], note: "Informal." },
-
-        { es: "laburar", en: "to work", exEs: "Mañana laburo temprano.", exEn: "I work early tomorrow.", cats: ["work"], note: "Verbo coloquial." },
-        { es: "guita", en: "money, cash", exEs: "No tengo guita.", exEn: "I don't have money.", cats: ["money"], note: "Muy común." },
-        { es: "mango", en: "buck, peso (money)", exEs: "No me alcanza un mango.", exEn: "I don't have a buck.", cats: ["money"], note: "Singular / plural flexible." },
-        { es: "garpar", en: "to pay (informal)", exEs: "¿Me garpás el viaje?", exEn: "Can you pay for the ride?", cats: ["money"], note: "Verbo coloquial." },
-        { es: "changa", en: "odd job / side gig", exEs: "Hago changas los fines de semana.", exEn: "I do odd jobs on weekends.", cats: ["work"], note: "Trabajo informal." },
-
-        { es: "quilombo", en: "mess / chaos / trouble", exEs: "Este cuarto es un quilombo.", exEn: "This room is a mess.", cats: ["problems"], note: "Puede ser vulgar." },
-        { es: "bardo", en: "trouble / ruckus", exEs: "Se armó bardo en la puerta.", exEn: "There was trouble at the entrance.", cats: ["problems"], note: "Situación conflictiva." },
-        { es: "bardear", en: "to insult / trash talk", exEs: "No me bardees.", exEn: "Don't trash talk me.", cats: ["problems"], note: "Verbo de conflicto." },
-        { es: "garrón", en: "a drag / bummer", exEs: "Qué garrón perder el bondi.", exEn: "What a bummer to miss the bus.", cats: ["problems"], note: "Situación mala." },
-        { es: "bajón", en: "downer / craving (context)", exEs: "Me pintó un bajón de dulce.", exEn: "I got a sweet craving.", cats: ["feelings"], note: "Tristeza o antojo." },
-
-        { es: "pibe/piba", en: "kid / boy, girl", exEs: "El pibe de la esquina.", exEn: "The kid from the corner.", cats: ["people"], note: "Muy común." },
-        { es: "flaco/flaca", en: "dude / guy / girl (vocative)", exEs: "Che, flaco, esperá.", exEn: "Hey, dude, wait.", cats: ["people"], note: "Puede ser afectuoso." },
-        { es: "chabón/chabona", en: "guy / dude (neutral)", exEs: "Ese chabón es capo.", exEn: "That guy is great.", cats: ["people"], note: "Informal." },
-        { es: "mina", en: "girl / woman (colloq.)", exEs: "Esa mina canta bien.", exEn: "That girl sings well.", cats: ["people"], note: "Coloquial." },
-        { es: "gil", en: "fool / sucker", exEs: "No seas gil.", exEn: "Don't be a fool.", cats: ["people","tone"], note: "Puede ser insulto." },
-        { es: "capo", en: "awesome / great guy", exEs: "Sos un capo.", exEn: "You're awesome.", cats: ["compliments"], note: "Aprobación fuerte." },
-
-        { es: "bondi", en: "bus", exEs: "Me tomo el bondi.", exEn: "I take the bus.", cats: ["transport"], note: "También 'colectivo'." },
-        { es: "subte", en: "subway / metro", exEs: "Voy en subte.", exEn: "I'm going by subway.", cats: ["transport"], note: "Capital Federal." },
-        { es: "kiosco", en: "corner shop / kiosk", exEs: "Bajo al kiosco.", exEn: "I'm going down to the kiosk.", cats: ["places"], note: "Tienda pequeña." },
-        { es: "boliche", en: "club / nightclub", exEs: "Vamos al boliche.", exEn: "Let's go to the club.", cats: ["places"], note: "Vida nocturna." },
-
-        { es: "birra", en: "beer", exEs: "Tomamos una birra.", exEn: "We had a beer.", cats: ["food"], note: "Muy común." },
-        { es: "fernet", en: "Fernet (herbal liquor, often with cola)", exEs: "Un fernet con coca.", exEn: "A fernet with coke.", cats: ["food"], note: "Bebida típica." },
-        { es: "mate", en: "mate (infusion)", exEs: "Tomamos mate.", exEn: "We drank mate.", cats: ["food"], note: "Símbolo nacional." },
-        { es: "bombilla", en: "metal straw for mate", exEs: "Lavá la bombilla.", exEn: "Wash the metal straw.", cats: ["food"], note: "Accesorio del mate." },
-        { es: "facturas", en: "pastries", exEs: "Compré facturas.", exEn: "I bought pastries.", cats: ["food"], note: "Medialunas, etc." },
-        { es: "asado", en: "barbecue", exEs: "Hicimos asado.", exEn: "We had a barbecue.", cats: ["food"], note: "Parrillada." },
-
-        { es: "chamuyar", en: "to sweet-talk / flirt / persuade", exEs: "Dejá de chamuyar.", exEn: "Stop sweet-talking.", cats: ["social"], note: "También 'flirtear'." },
-        { es: "bancar", en: "to support / to put up with / to cover (pay)", exEs: "Te banco en esa.", exEn: "I support you on that.", cats: ["social","money"], note: "Muchos sentidos." },
-        { es: "cortar", en: "to break up", exEs: "Cortamos ayer.", exEn: "We broke up yesterday.", cats: ["social"], note: "Relaciones." },
-        { es: "onda", en: "vibe / style", exEs: "Tiene buena onda.", exEn: "They've got good vibe.", cats: ["social"], note: "Positivo/negativo." },
-        { es: "pintar (ganas)", en: "to feel like / to be up for", exEs: "¿Pinta peli?", exEn: "Feel like a movie?", cats: ["social"], note: "Uso impersonal." },
-
-        { es: "rascarse", en: "to loaf around / do nothing", exEs: "Me rasqué todo el día.", exEn: "I did nothing all day.", cats: ["feelings"], note: "Informal." },
-        { es: "afanar", en: "to steal (slang)", exEs: "Le afanaron el celu.", exEn: "They stole his phone.", cats: ["problems"], note: "Vulgar/coloquial." }
-      ];
-
+      // ---- Categories ----
       const CATS = [
         { id: "greetings", label: "Greetings & Fillers" },
-        { id: "fillers", label: "Fillers" },
-        { id: "agreement", label: "Agreement" },
-        { id: "intensifier", label: "Intensifiers" },
-        { id: "tone", label: "Tone / Strong" },
-        { id: "work", label: "Work" },
-        { id: "money", label: "Money" },
-        { id: "problems", label: "Problems" },
-        { id: "feelings", label: "Feelings" },
-        { id: "people", label: "People" },
-        { id: "compliments", label: "Compliments" },
-        { id: "transport", label: "Transport" },
-        { id: "places", label: "Places" },
-        { id: "food", label: "Food & Drink" },
-        { id: "social", label: "Social" },
+        { id: "agreement",  label: "Agreement" },
+        { id: "intensifier",label: "Intensifiers" },
+        { id: "tone_soft",  label: "Insults (soft)" },
+        { id: "tone_strong",label: "Insults (strong)" },
+        { id: "people",     label: "People" },
+        { id: "work",       label: "Work" },
+        { id: "money",      label: "Money" },
+        { id: "transport",  label: "Transport" },
+        { id: "places",     label: "Places" },
+        { id: "food",       label: "Food & Drink" },
+        { id: "social",     label: "Social" },
+        { id: "football",   label: "Football" },
+        { id: "feelings",   label: "Feelings" },
+        { id: "problems",   label: "Problems" },
+        { id: "time",       label: "Time & Frequency" },
+        { id: "school",     label: "School/Study" },
+        { id: "daily",      label: "Daily life" }
       ];
 
-      function shuffle(a){ const c=[...a]; for(let i=c.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1)); [c[i],c[j]]=[c[j],c[i]];} return c; }
+      // ---- Dataset (seed) ----
+      const DATA = [
+        { es:"che", en:"hey (to get attention)", exEs:"Che, ¿venís?", exEn:"Hey, you coming?", cats:["greetings"], note:"Very common, informal." },
+        { es:"boludo/boluda", en:"dude / idiot (friendly or insult)", exEs:"Dale, boludo, apurate.", exEn:"Come on, dude, hurry up.", cats:["people","tone_soft"], note:"Depends on tone." },
+        { es:"pelotudo/pelotuda", en:"idiot (strong insult)", exEs:"¡No seas pelotudo!", exEn:"Don't be an idiot!", cats:["tone_strong"], note:"Stronger than 'boludo'." },
+        { es:"chabón/chabona", en:"guy / girl (neutral-ish)", exEs:"Ese chabón es re capo.", exEn:"That guy is awesome.", cats:["people"] },
+        { es:"pibe/piba", en:"kid / boy, girl", exEs:"El pibe de la esquina.", exEn:"The kid from the corner.", cats:["people"] },
+        { es:"flaco/flaca", en:"dude / guy / girl (voc.)", exEs:"Che, flaco, esperá.", exEn:"Hey, dude, wait.", cats:["people"] },
+        { es:"mina", en:"girl / woman (colloq.)", exEs:"Esa mina canta bien.", exEn:"That girl sings well.", cats:["people"] },
+        { es:"capo/capa", en:"awesome / great person", exEs:"Sos un capo.", exEn:"You're awesome.", cats:["people"] },
+        { es:"posta", en:"for real, seriously", exEs:"¿Posta? No lo creo.", exEn:"For real? I don't think so.", cats:["greetings"] },
+        { es:"viste", en:"you know? / right? (tag)", exEs:"Está caro, viste.", exEn:"It's expensive, you know.", cats:["greetings"] },
+        { es:"de una", en:"for sure / right away", exEs:"¿Vamos? De una.", exEn:"Shall we go? For sure.", cats:["agreement"] },
+        { es:"obvio", en:"obviously / of course", exEs:"—¿Te gusta? —Obvio.", exEn:"—Do you like it? —Obviously.", cats:["agreement"] },
+        { es:"re- (prefijo)", en:"super / very (intensifier)", exEs:"Está re lindo.", exEn:"It's super nice.", cats:["intensifier"] },
+        { es:"mal (adverbio)", en:"a lot / totally (emphasis)", exEs:"Me gusta mal.", exEn:"I like it a lot.", cats:["intensifier"] },
+        { es:"alto/terrible (positivo)", en:"awesome / great", exEs:"Alta pizza.", exEn:"Awesome pizza.", cats:["intensifier"] },
+        { es:"ni en pedo", en:"no way (very informal)", exEs:"¿Te levantás a las 5? Ni en pedo.", exEn:"Wake up at 5? No way.", cats:["tone_strong"] },
+        { es:"ni a palos", en:"no way at all", exEs:"Con este frío, ni a palos.", exEn:"With this cold? No way.", cats:["tone_soft"] },
+        { es:"quilombo", en:"mess / chaos / trouble", exEs:"Este cuarto es un quilombo.", exEn:"This room is a mess.", cats:["problems"] },
+        { es:"bardo", en:"ruckus / trouble", exEs:"Se armó bardo.", exEn:"There was trouble.", cats:["problems"] },
+        { es:"garrón", en:"drag / bummer", exEs:"Qué garrón perder el bondi.", exEn:"What a bummer to miss the bus.", cats:["problems"] },
+        { es:"bardear", en:"to insult / trash talk", exEs:"No me bardees.", exEn:"Don't trash talk me.", cats:["problems"] },
+        { es:"afanar", en:"to steal (slang)", exEs:"Le afanaron el celu.", exEn:"They stole his phone.", cats:["problems"] },
+        { es:"laburar", en:"to work (colloq.)", exEs:"Laburo hasta tarde.", exEn:"I work late.", cats:["work"] },
+        { es:"laburo", en:"job / work", exEs:"Conseguí laburo nuevo.", exEn:"I got a new job.", cats:["work"] },
+        { es:"changa", en:"odd job / side gig", exEs:"Hago changas los domingos.", exEn:"I do odd jobs on Sundays.", cats:["work"] },
+        { es:"garpar", en:"to pay (informal)", exEs:"¿Me garpás el taxi?", exEn:"Can you pay for the taxi?", cats:["money"] },
+        { es:"guita", en:"money, cash", exEs:"No tengo guita.", exEn:"I have no money.", cats:["money"] },
+        { es:"mango", en:"buck, peso", exEs:"No tengo un mango.", exEn:"I don't have a buck.", cats:["money"] },
+        { es:"estar seco", en:"to be broke", exEs:"Estoy seco fin de mes.", exEn:"I'm broke at the end of the month.", cats:["money"] },
+        { es:"bondi", en:"bus", exEs:"Me tomo el bondi.", exEn:"I take the bus.", cats:["transport"] },
+        { es:"colectivo", en:"bus (standard term)", exEs:"¿Qué colectivo pasa?", exEn:"Which bus goes by?", cats:["transport"] },
+        { es:"subte", en:"subway / metro", exEs:"Voy en subte.", exEn:"I'm going by subway.", cats:["transport"] },
+        { es:"remís", en:"car service (ride)", exEs:"Pedimos un remís.", exEn:"Let's order a car.", cats:["transport"] },
+        { es:"kiosco", en:"corner shop / kiosk", exEs:"Bajo al kiosco.", exEn:"I'm going down to the kiosk.", cats:["places"] },
+        { es:"boliche", en:"club / nightclub", exEs:"Vamos al boliche.", exEn:"Let's go to the club.", cats:["places"] },
+        { es:"bondiola", en:"pork shoulder (sandwich)", exEs:"Un sándwich de bondiola.", exEn:"A pork shoulder sandwich.", cats:["food"] },
+        { es:"choripán", en:"chorizo sandwich", exEs:"Comimos choripán.", exEn:"We ate choripán.", cats:["food"] },
+        { es:"birra", en:"beer", exEs:"Tomamos una birra.", exEn:"We had a beer.", cats:["food"] },
+        { es:"fernet con coca", en:"Fernet with cola", exEs:"Un fernet con coca.", exEn:"A fernet with coke.", cats:["food"] },
+        { es:"mate", en:"mate (infusion)", exEs:"Tomamos mate.", exEn:"We drank mate.", cats:["food"] },
+        { es:"bombilla", en:"metal straw for mate", exEs:"Lavá la bombilla.", exEn:"Wash the bombilla.", cats:["food"] },
+        { es:"facturas", en:"pastries", exEs:"Compré facturas.", exEn:"I bought pastries.", cats:["food"] },
+        { es:"medialuna", en:"croissant (Arg)", exEs:"Dos medialunas, por favor.", exEn:"Two croissants, please.", cats:["food"] },
+        { es:"asado", en:"barbecue", exEs:"Hicimos asado.", exEn:"We had a barbecue.", cats:["food"] },
+        { es:"chamuyar", en:"to sweet-talk / flirt / BS", exEs:"Está chamuyando mal.", exEn:"He's sweet‑talking a lot.", cats:["social"] },
+        { es:"bancar", en:"to support / put up with", exEs:"Te banco en esa.", exEn:"I support you on that.", cats:["social"] },
+        { es:"onda", en:"vibe / style", exEs:"Tiene buena onda.", exEn:"They have good vibes.", cats:["social"] },
+        { es:"pintar", en:"to feel like (impersonal)", exEs:"¿Pinta peli?", exEn:"Feel like a movie?", cats:["social"] },
+        { es:"cortar", en:"to break up", exEs:"Cortamos ayer.", exEn:"We broke up yesterday.", cats:["social"] },
+        { es:"bajón", en:"downer / craving", exEs:"Me pintó un bajón de dulce.", exEn:"Got a sweet craving.", cats:["feelings"] },
+        { es:"rascarse", en:"to loaf around", exEs:"Me rasqué todo el día.", exEn:"I did nothing all day.", cats:["feelings"] },
+        { es:"estar al horno", en:"to be in trouble", exEs:"Estoy al horno con el final.", exEn:"I'm in trouble with the exam.", cats:["problems"] },
+        { es:"estar hecho percha", en:"to be exhausted / wrecked", exEs:"Quedé hecho percha.", exEn:"I'm wrecked.", cats:["feelings"] },
+        { es:"fulbo", en:"football (soccer, colloq.)", exEs:"Hoy hay fulbo.", exEn:"There's football today.", cats:["football"] },
+        { es:"cancha", en:"pitch / stadium", exEs:"Nos vemos en la cancha.", exEn:"See you at the stadium.", cats:["football"] },
+        { es:"hincha", en:"fan / supporter", exEs:"Soy hincha de Boca.", exEn:"I'm a Boca fan.", cats:["football"] },
+        { es:"aguante", en:"die‑hard support", exEs:"¡Aguante la Selección!", exEn:"Long live the national team!", cats:["football"] },
+        { es:"ya fue", en:"let it go / whatever", exEs:"Ya fue, vamos mañana.", exEn:"Whatever, let's go tomorrow.", cats:["daily"] },
+        { es:"al toque", en:"right away / quickly", exEs:"Llego al toque.", exEn:"I'll be there right away.", cats:["time"] },
+        { es:"de toque", en:"immediately", exEs:"Respondé de toque.", exEn:"Reply immediately.", cats:["time"] },
+        { es:"un toque", en:"a moment / a bit", exEs:"Esperá un toque.", exEn:"Wait a moment.", cats:["time"] },
+        { es:"a full", en:"full speed / a lot", exEs:"Estamos laburando a full.", exEn:"We're working flat out.", cats:["work"] },
+        { es:"banda", en:"a lot / many", exEs:"Hay banda de gente.", exEn:"There are lots of people.", cats:["intensifier"] },
+        { es:"bocha", en:"a lot / loads", exEs:"Tengo bocha de tareas.", exEn:"I have loads of homework.", cats:["intensifier"] },
+        { es:"fiaca", en:"laziness", exEs:"Me da fiaca salir.", exEn:"I'm too lazy to go out.", cats:["feelings"] },
+        { es:"trucho", en:"fake / dodgy", exEs:"Ese cable es trucho.", exEn:"That cable is fake.", cats:["problems"] },
+        { es:"macana", en:"mistake / blunder", exEs:"Hice una macana.", exEn:"I made a blunder.", cats:["problems"] },
+        { es:"buzo", en:"sweatshirt", exEs:"Me pongo un buzo.", exEn:"I'm putting on a sweatshirt.", cats:["daily"] },
+        { es:"remera", en:"t‑shirt", exEs:"¿Dónde está mi remera?", exEn:"Where's my t‑shirt?", cats:["daily"] },
+        { es:"zapatillas", en:"sneakers", exEs:"Traé las zapatillas.", exEn:"Bring the sneakers.", cats:["daily"] },
+        { es:"bocha de tiempo", en:"a long time", exEs:"Hace bocha de tiempo que no te veo.", exEn:"Haven't seen you in ages.", cats:["time"] },
+        { es:"de una vez", en:"once and for all / already", exEs:"Hacelo de una vez.", exEn:"Do it already.", cats:["time"] },
+        { es:"materia", en:"subject (school)", exEs:"Rindo tres materias.", exEn:"I take three subjects.", cats:["school"] },
+        { es:"final", en:"final exam", exEs:"Tengo un final el lunes.", exEn:"I have a final on Monday.", cats:["school"] },
+        { es:"aprobado/desaprobado", en:"passed/failed", exEs:"Aprobé el final.", exEn:"I passed the final.", cats:["school"] },
+      ];
 
+      // ---- IndexedDB (Dexie) ----
+      const db = new Dexie('lunfardo_srs_full_en');
+      db.version(1).stores({
+        cards: '++id, es, en, cats',
+        srs: '&cardId, ease, interval, reps, lapses, due, state, stepIndex',
+        meta: '&key',
+        logs: '++id, ts, cardId, action, quality'
+      });
+
+      // ---- Config ----
+      const DEFAULTS = {
+        learningStepsMins: [1, 10], // e.g., 1m then 10m
+        dailyNewLimit: 15,
+        dailyReviewLimit: 100
+      };
+
+      async function seedIfNeeded(){
+        const seeded = await db.meta.get('seeded');
+        if (!seeded){
+          const count = await db.cards.count();
+          if (count === 0) {
+            await db.cards.bulkAdd(DATA.map(x => ({...x})));
+            const all = await db.cards.toArray();
+            await db.srs.bulkPut(all.map(c => ({
+              cardId: c.id, ease:2.5, interval:0, reps:0, lapses:0,
+              due: Date.now(), state:'new', stepIndex:0
+            })));
+          }
+          // init counters date
+          await db.meta.put({ key:'day', value: new Date().toDateString() });
+          await db.meta.put({ key:'newDone', value: 0 });
+          await db.meta.put({ key:'reviewDone', value: 0 });
+          await db.meta.put({ key:'learningStepsMins', value: DEFAULTS.learningStepsMins });
+          await db.meta.put({ key:'dailyNewLimit', value: DEFAULTS.dailyNewLimit });
+          await db.meta.put({ key:'dailyReviewLimit', value: DEFAULTS.dailyReviewLimit });
+          await db.meta.put({ key:'seeded', value:true });
+        }
+      }
+
+      // ---- Helpers for daily counters ----
+      async function ensureDay(){
+        const today = new Date().toDateString();
+        const day = await db.meta.get('day');
+        if (!day || day.value !== today){
+          await db.meta.put({ key:'day', value: today });
+          await db.meta.put({ key:'newDone', value: 0 });
+          await db.meta.put({ key:'reviewDone', value: 0 });
+        }
+      }
+      async function incCounter(which){
+        await ensureDay();
+        const cur = await db.meta.get(which);
+        await db.meta.put({ key: which, value: (cur?.value || 0) + 1 });
+      }
+      async function getCounters(){
+        await ensureDay();
+        const [n, r, steps, nLim, rLim] = await Promise.all([
+          db.meta.get('newDone'), db.meta.get('reviewDone'),
+          db.meta.get('learningStepsMins'),
+          db.meta.get('dailyNewLimit'), db.meta.get('dailyReviewLimit')
+        ]);
+        return {
+          newDone: n?.value || 0,
+          reviewDone: r?.value || 0,
+          learningStepsMins: steps?.value || DEFAULTS.learningStepsMins,
+          dailyNewLimit: nLim?.value ?? DEFAULTS.dailyNewLimit,
+          dailyReviewLimit: rLim?.value ?? DEFAULTS.dailyReviewLimit
+        };
+      }
+
+      // ---- SM-2 simplified ----
+      function sm2Update(stats, quality){
+        let { ease=2.5, interval=0, reps=0, lapses=0 } = stats || {};
+        if (quality < 3){
+          reps = 0;
+          lapses += 1;
+          interval = 1;
+        } else {
+          if (reps === 0) interval = 1;
+          else if (reps === 1) interval = 6;
+          else interval = Math.round(interval * ease);
+          reps += 1;
+        }
+        ease = ease + (0.1 - (4 - quality) * (0.08 + (4 - quality) * 0.02));
+        if (ease < 1.3) ease = 1.3;
+        const due = Date.now() + interval * 24 * 60 * 60 * 1000;
+        return { ease, interval, reps, lapses, due };
+      }
+
+      function minutesFromNow(min){ return Date.now() + min*60*1000; }
+
+      // ---- LocalStorage hook ----
       function useLocalStorage(key, def){
-        const [st,setSt]=React.useState(()=>{ try{const v=localStorage.getItem(key); return v?JSON.parse(v):def;}catch{return def;}});
-        React.useEffect(()=>{ try{localStorage.setItem(key, JSON.stringify(st));}catch{} },[key,st]);
+        const [st,setSt] = useState(()=>{
+          try{ const v = localStorage.getItem(key); return v? JSON.parse(v): def; } catch { return def; }
+        });
+        useEffect(()=>{ try{ localStorage.setItem(key, JSON.stringify(st)); } catch {} }, [key, st]);
         return [st,setSt];
       }
 
@@ -130,13 +251,13 @@
           <div className="rounded-2xl border shadow bg-white p-6">
             <div className="flex items-center justify-between mb-2">
               <div className="text-sm text-gray-500">{showBack? 'Meaning' : 'Lunfardo'}</div>
-              <div className="flex gap-2">{item.cats?.slice(0,3).map(c=> <Badge key={c}>{c}</Badge>)}</div>
+              <div className="flex gap-2">{(item.cats||[]).slice(0,3).map(c=> <Badge key={c}>{c}</Badge>)}</div>
             </div>
             {!showBack ? (
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <div className="text-3xl font-semibold">{item.es}</div>
-                  <button onClick={()=>speakES(item.es)} title="Escuchar (ES)" className="px-2 py-1 rounded-lg bg-gray-100 hover:bg-gray-200">🔊</button>
+                  <button onClick={()=>speakES(item.es)} title="Listen (ES)" className="px-2 py-1 rounded-lg bg-gray-100 hover:bg-gray-200">🔊</button>
                 </div>
                 {item.note && <div className="text-sm text-gray-600">{item.note}</div>}
               </div>
@@ -145,89 +266,523 @@
                 <div className="text-2xl font-semibold">{item.en}</div>
                 <div className="mt-2 p-3 rounded-xl bg-gray-50 border">
                   <div className="text-sm text-gray-500 mb-1">Example</div>
-                  <div className="font-medium">ES: {item.exEs}</div>
-                  <div className="opacity-80">EN: {item.exEn}</div>
+                  <div className="font-medium">ES: {item.exEs || '—'}</div>
+                  <div className="opacity-80">EN: {item.exEn || '—'}</div>
                 </div>
               </div>
             )}
             <div className="mt-4 flex gap-2">
-              <button onClick={onFlip} className="px-4 py-2 rounded-xl shadow bg-blue-600 text-white">{showBack? 'Front' : 'Show meaning'}</button>
-              {!showBack && <button onClick={()=>speakES(item.es)} className="px-4 py-2 rounded-xl shadow bg-gray-100" title="Escuchar (ES)">🔊</button>}
+              <button onClick={onFlip} className="px-4 py-2 rounded-xl shadow bg-blue-600 text-white">{showBack? 'Show front' : 'Show meaning'}</button>
             </div>
           </div>
         );
       }
 
-      function App(){
-        const [query, setQuery] = useLocalStorage('lunf_q','');
-        const [activeCats, setActiveCats] = useLocalStorage('lunf_cats', CATS.map(c=>c.id));
-        const [index, setIndex] = useLocalStorage('lunf_idx', 0);
-        const [back, setBack] = useLocalStorage('lunf_back', false);
+      function CategoryBar({ activeCats, setActiveCats }){
+        const allOn = ()=> setActiveCats(CATS.map(c=>c.id));
+        const allOff = ()=> setActiveCats([]);
+        const toggleCat = (id)=> setActiveCats(acs => acs.includes(id) ? acs.filter(x=>x!==id) : [...acs, id]);
+        return (
+          <div className="mt-3 flex flex-wrap gap-2 items-center">
+            <button onClick={allOn}  className="px-3 py-1 rounded-full border bg-gray-50">All</button>
+            <button onClick={allOff} className="px-3 py-1 rounded-full border bg-gray-50">None</button>
+            {CATS.map(c => (
+              <button key={c.id} onClick={()=>toggleCat(c.id)} className={`px-3 py-1 rounded-full border ${activeCats.includes(c.id)?'bg-blue-100':'bg-white'}`}>{c.label}</button>
+            ))}
+          </div>
+        );
+      }
 
-        useEffect(()=>{ if ('speechSynthesis' in window) window.speechSynthesis.getVoices(); }, []);
+      // ---- Study (with limits & steps) ----
+      function useQueue(activeCats){
+        const [queue, setQueue] = useState({ review:[], learning:[], new:[] });
+        const [counters, setCounters] = useState({ newDone:0, reviewDone:0, learningStepsMins:DEFAULTS.learningStepsMins, dailyNewLimit:DEFAULTS.dailyNewLimit, dailyReviewLimit:DEFAULTS.dailyReviewLimit });
 
-        const data = React.useMemo(()=>{
-          const q = query.trim().toLowerCase();
-          let arr = DATA.filter(d => d.cats.some(c=>activeCats.includes(c)));
-          if(q){ arr = arr.filter(d=> d.es.toLowerCase().includes(q) || d.en.toLowerCase().includes(q) || d.exEs.toLowerCase().includes(q) || d.exEn.toLowerCase().includes(q)); }
-          return arr;
-        },[query, activeCats]);
+        const refresh = async ()=>{
+          const now = Date.now();
+          const { newDone, reviewDone, learningStepsMins, dailyNewLimit, dailyReviewLimit } = await getCounters();
 
-        React.useEffect(()=>{ if(index>=data.length) setIndex(0); },[data.length]);
+          // fetch candidates
+          const srsAll = await db.srs.toArray();
+          const cardsAll = await db.cards.toArray();
+          const cardById = Object.fromEntries(cardsAll.map(c=>[c.id,c]));
 
-        const next = ()=>{ setBack(false); setIndex( (index+1) % (data.length || 1) ); };
-        const prev = ()=>{ setBack(false); setIndex( (index-1 + (data.length||1)) % (data.length||1) ); };
-        const flip = ()=> setBack(b=>!b);
-        const shuffleNow = ()=>{ setIndex(Math.floor(Math.random() * (data.length||1))); setBack(false); };
+          const filtered = srsAll.filter(s => {
+            const c = cardById[s.cardId]; if(!c) return false;
+            return (c.cats||[]).some(cat => activeCats.includes(cat));
+          });
 
-        const toggleCat = (id)=>{
-          setIndex(0); setBack(false);
-          setActiveCats(acs => acs.includes(id) ? acs.filter(x=>x!==id) : [...acs, id]);
+          // partition
+          const review = filtered.filter(s => s.state==='review' && s.due <= now).sort((a,b)=>a.due-b.due);
+          const learning = filtered.filter(s => s.state==='learning' && s.due <= now).sort((a,b)=>a.due-b.due);
+          const newOnes = filtered.filter(s => s.state==='new').sort((a,b)=>a.cardId-b.cardId);
+
+          // apply limits (priority: review -> learning -> new)
+          const reviewAllowed = Math.max(0, dailyReviewLimit - reviewDone);
+          const reviewQ = review.slice(0, reviewAllowed);
+          const newAllowed = Math.max(0, dailyNewLimit - newDone);
+          const newQ = newOnes.slice(0, newAllowed);
+
+          setQueue({ review:reviewQ, learning, new:newQ });
+          setCounters({ newDone, reviewDone, learningStepsMins, dailyNewLimit, dailyReviewLimit });
         };
 
-        const current = data[index];
+        useEffect(()=>{ refresh(); }, [activeCats.join('|')]);
+        return { queue, counters, refresh };
+      }
+
+      function StudyTab({ activeCats }){
+        const { queue, counters, refresh } = useQueue(activeCats);
+        const [pair, setPair] = useState(null);
+        const [show, setShow] = useState(false);
+
+        useEffect(()=>{
+          (async ()=>{
+            // pick priority: review -> learning -> new
+            const s = queue.review[0] || queue.learning[0] || queue.new[0] || null;
+            if (!s){ setPair(null); return; }
+            const c = await db.cards.get(s.cardId);
+            setPair({ s, c });
+            setShow(false);
+          })();
+        }, [queue]);
+
+        const rateLearning = async (s, quality) => {
+          const { learningStepsMins } = counters;
+          if (quality < 3){
+            // again: reset steps to first
+            await db.srs.update(s.cardId, { stepIndex:0, due: minutesFromNow(learningStepsMins[0]) });
+          } else {
+            // good/easy: advance step or graduate
+            const nextIdx = (s.stepIndex || 0) + 1;
+            if (nextIdx < learningStepsMins.length){
+              await db.srs.update(s.cardId, { stepIndex: nextIdx, due: minutesFromNow(learningStepsMins[nextIdx]) });
+            } else {
+              // graduate to review
+              const updated = sm2Update({ ease: 2.5, interval:0, reps:0, lapses:s.lapses || 0 }, quality>=4?4:3);
+              await db.srs.update(s.cardId, { ...updated, state:'review', stepIndex:0 });
+              await incCounter('newDone'); // count graduation as learned today
+            }
+          }
+          await db.logs.add({ ts:Date.now(), cardId:s.cardId, action:'learning', quality });
+          await refresh();
+        };
+
+        const rateReview = async (s, quality) => {
+          const updated = sm2Update(s, quality);
+          await db.srs.update(s.cardId, { ...updated, state:'review', stepIndex:0 });
+          await incCounter('reviewDone');
+          await db.logs.add({ ts:Date.now(), cardId:s.cardId, action:'review', quality });
+          await refresh();
+        };
+
+        const rateNew = async (s, quality) => {
+          // move to learning, first step
+          const { learningStepsMins } = counters;
+          const due = minutesFromNow(learningStepsMins[0]);
+          await db.srs.update(s.cardId, { state:'learning', stepIndex:0, due });
+          await db.logs.add({ ts:Date.now(), cardId:s.cardId, action:'startLearning', quality });
+          await refresh();
+        };
+
+        const onRate = async (q) => {
+          if (!pair) return;
+          if (pair.s.state === 'review') await rateReview(pair.s, q);
+          else if (pair.s.state === 'learning') await rateLearning(pair.s, q);
+          else if (pair.s.state === 'new') await rateNew(pair.s, q);
+        };
+
+        if (!pair){
+          return (
+            <div className="rounded-2xl border bg-white p-6 text-center text-gray-700">
+              <div className="text-xl font-semibold mb-1">No due cards for the current filter</div>
+              <div className="text-sm">Increase daily limits or enable more categories.</div>
+              <DailyControls counters={counters} refresh={refresh} />
+            </div>
+          );
+        }
 
         return (
-          <div className="max-w-5xl mx-auto space-y-6">
+          <div className="space-y-4">
+            <DailyControls counters={counters} refresh={refresh} />
+
+            <div className="rounded-2xl border bg-white p-6 shadow">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-sm text-gray-500">
+                  Queue — Review: {queue.review.length} • Learning: {queue.learning.length} • New: {queue.new.length}
+                </div>
+                <button onClick={()=>speakES(pair.c.es)} className="px-3 py-1 rounded-lg border bg-gray-50" title="Listen (ES)">🔊</button>
+              </div>
+
+              <div className="text-xs text-gray-500 mb-1">State: {pair.s.state}</div>
+              <div className="text-3xl font-semibold">{pair.c.es}</div>
+
+              {!show ? (
+                <div className="mt-6">
+                  <button onClick={()=>setShow(true)} className="px-4 py-2 rounded-xl bg-blue-600 text-white">Show answer</button>
+                </div>
+              ) : (
+                <div className="mt-4 space-y-3">
+                  <div className="text-2xl">{pair.c.en}</div>
+                  <div className="p-3 rounded-xl bg-gray-50 border">
+                    <div className="text-sm text-gray-500 mb-1">Example</div>
+                    <div className="font-medium">ES: {pair.c.exEs || '—'}</div>
+                    <div className="opacity-80">EN: {pair.c.exEn || '—'}</div>
+                  </div>
+
+                  <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2">
+                    <button onClick={()=>onRate(1)} className="px-3 py-2 rounded-xl border bg-red-50">Again</button>
+                    <button onClick={()=>onRate(2)} className="px-3 py-2 rounded-xl border bg-yellow-50">Hard</button>
+                    <button onClick={()=>onRate(3)} className="px-3 py-2 rounded-xl border bg-green-50">Good</button>
+                    <button onClick={()=>onRate(4)} className="px-3 py-2 rounded-xl border bg-blue-50">Easy</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      }
+
+      function DailyControls({ counters, refresh }){
+        const [editing, setEditing] = useState(false);
+        const [newLimit, setNewLimit] = useState(counters.dailyNewLimit);
+        const [reviewLimit, setReviewLimit] = useState(counters.dailyReviewLimit);
+        const [steps, setSteps] = useState((counters.learningStepsMins || []).join(','));
+
+        useEffect(()=>{
+          setNewLimit(counters.dailyNewLimit);
+          setReviewLimit(counters.dailyReviewLimit);
+          setSteps((counters.learningStepsMins || []).join(','));
+        }, [counters]);
+
+        const save = async () => {
+          const arr = steps.split(',').map(s=>parseInt(s.trim(),10)).filter(n=>!isNaN(n) && n>=1);
+          await db.meta.put({ key:'dailyNewLimit', value: parseInt(newLimit,10) || 15 });
+          await db.meta.put({ key:'dailyReviewLimit', value: parseInt(reviewLimit,10) || 100 });
+          await db.meta.put({ key:'learningStepsMins', value: arr.length?arr:[1,10] });
+          setEditing(false);
+          await refresh();
+        };
+
+        return (
+          <div className="rounded-2xl border bg-white p-4 shadow">
+            {!editing ? (
+              <div className="flex flex-wrap items-center gap-4 text-sm">
+                <div>New today: <b>{counters.newDone}</b> / {counters.dailyNewLimit}</div>
+                <div>Reviews today: <b>{counters.reviewDone}</b> / {counters.dailyReviewLimit}</div>
+                <div>Learning steps (min): <b>{(counters.learningStepsMins||[]).join(', ')}</b></div>
+                <button onClick={()=>setEditing(true)} className="ml-auto px-3 py-1 rounded-lg border bg-gray-50">Edit limits</button>
+              </div>
+            ) : (
+              <div className="flex flex-col md:flex-row gap-3 md:items-end">
+                <label className="text-sm">Daily limit (New)
+                  <input type="number" className="block w-32 px-3 py-1 rounded-lg border" value={newLimit} onChange={e=>setNewLimit(e.target.value)} />
+                </label>
+                <label className="text-sm">Daily limit (Review)
+                  <input type="number" className="block w-32 px-3 py-1 rounded-lg border" value={reviewLimit} onChange={e=>setReviewLimit(e.target.value)} />
+                </label>
+                <label className="text-sm">Learning steps (min, comma)
+                  <input type="text" className="block w-48 px-3 py-1 rounded-lg border" value={steps} onChange={e=>setSteps(e.target.value)} />
+                </label>
+                <div className="flex gap-2">
+                  <button onClick={save} className="px-3 py-1 rounded-lg bg-blue-600 text-white">Save</button>
+                  <button onClick={()=>setEditing(false)} className="px-3 py-1 rounded-lg border bg-gray-50">Cancel</button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      // ---- Browse (non-SRS) ----
+      function BrowseTab({ activeCats }){
+        const [query, setQuery] = useLocalStorage('lunf_q','');
+        const [index, setIndex] = useLocalStorage('lunf_idx', 0);
+        const [back, setBack] = useLocalStorage('lunf_back', false);
+        const [list, setList] = useState([]);
+
+        useEffect(()=>{
+          (async()=>{
+            const all = await db.cards.toArray();
+            let arr = all.filter(d => (d.cats||[]).some(c=>activeCats.includes(c)));
+            const q = query.trim().toLowerCase();
+            if(q){
+              arr = arr.filter(d =>
+                (d.es||'').toLowerCase().includes(q) ||
+                (d.en||'').toLowerCase().includes(q) ||
+                (d.exEs||'').toLowerCase().includes(q) ||
+                (d.exEn||'').toLowerCase().includes(q)
+              );
+            }
+            setList(arr);
+          })();
+        },[activeCats.join('|'), query]);
+
+        useEffect(()=>{ if(index>=list.length) setIndex(0); },[list.length]);
+
+        const current = list[index];
+        const flip   = ()=> setBack(b=>!b);
+        const next   = ()=>{ setBack(false); setIndex( (index+1) % (list.length || 1) ); };
+        const prev   = ()=>{ setBack(false); setIndex( (index-1 + (list.length||1)) % (list.length||1) ); };
+        const shuffleNow = ()=>{ setBack(false); setIndex(Math.floor(Math.random() * (list.length||1))); };
+
+        return (
+          <div className="space-y-3">
+            <div className="rounded-2xl border bg-white p-4 md:p-6 shadow">
+              <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
+                <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search: 'boludo', 'mate', 'money'…" className="w-full md:w-96 px-3 py-2 rounded-xl border"/>
+                <div className="text-sm text-gray-600">{list.length} cards • {Math.min(index+1, Math.max(list.length,1))}/{Math.max(list.length,1)}</div>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2 items-center">
+                <button onClick={shuffleNow} className="px-3 py-1 rounded-full border bg-gray-50">Shuffle</button>
+              </div>
+            </div>
+
+            {current ? (
+              <>
+                <Card item={current} showBack={back} onFlip={flip} />
+                <div className="mt-4 flex items-center gap-2 justify-center">
+                  <button onClick={prev} className="px-4 py-2 rounded-xl bg-gray-100 border">⟵ Previous</button>
+                  <button onClick={flip} className="px-4 py-2 rounded-xl bg-blue-600 text-white">Flip</button>
+                  <button onClick={next} className="px-4 py-2 rounded-xl bg-gray-100 border">Next ⟶</button>
+                  <button onClick={()=>current && speakES(current.es)} className="px-4 py-2 rounded-xl bg-gray-100 border" title="Listen (ES)">🔊</button>
+                </div>
+              </>
+            ) : (
+              <div className="p-6 rounded-2xl border bg-white text-gray-600">No cards match these filters.</div>
+            )}
+          </div>
+        );
+      }
+
+      // ---- Manage (add/import/export) ----
+      function ManageTab({ onChange }){
+        const [form, setForm] = useState({ es:'', en:'', exEs:'', exEn:'', cats:'', note:'' });
+        const [list, setList] = useState([]);
+
+        const refreshList = async ()=> setList(await db.cards.toArray());
+        useEffect(()=>{ refreshList(); }, []);
+
+        const add = async () => {
+          if (!form.es || !form.en) return;
+          const item = {
+            es: form.es.trim(), en: form.en.trim(),
+            exEs: form.exEs.trim() || '', exEn: form.exEn.trim() || '',
+            note: form.note.trim() || '',
+            cats: form.cats.split(',').map(s=>s.trim()).filter(Boolean)
+          };
+          const id = await db.cards.add(item);
+          await db.srs.put({ cardId:id, ease:2.5, interval:0, reps:0, lapses:0, due:Date.now(), state:'new', stepIndex:0 });
+          setForm({ es:'', en:'', exEs:'', exEn:'', cats:'', note:'' });
+          await refreshList();
+          onChange?.();
+        };
+
+        const del = async (id) => {
+          await db.cards.delete(id);
+          await db.srs.delete(id);
+          await refreshList();
+          onChange?.();
+        };
+
+        const exportJSON = async () => {
+          const all = await db.cards.toArray();
+          const blob = new Blob([JSON.stringify(all, null, 2)], {type:'application/json'});
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url; a.download = 'lunfardo_deck_export.json'; a.click();
+          URL.revokeObjectURL(url);
+        };
+
+        const importJSON = async (file) => {
+          if(!file) return;
+          const text = await file.text();
+          const arr = JSON.parse(text);
+          if(Array.isArray(arr)){
+            await db.cards.clear();
+            await db.srs.clear();
+            await db.cards.bulkAdd(arr.map(x=>({...x, id: undefined})));
+            const all = await db.cards.toArray();
+            await db.srs.bulkPut(all.map(c => ({ cardId:c.id, ease:2.5, interval:0, reps:0, lapses:0, due:Date.now(), state:'new', stepIndex:0 })));
+            await refreshList();
+            onChange?.();
+          }
+        };
+
+        const resetDB = async () => {
+          if (!confirm('Reset and reseed with the default deck?')) return;
+          await db.cards.clear();
+          await db.srs.clear();
+          await db.cards.bulkAdd(DATA.map(x => ({...x})));
+          const all = await db.cards.toArray();
+          await db.srs.bulkPut(all.map(c => ({ cardId:c.id, ease:2.5, interval:0, reps:0, lapses:0, due:Date.now(), state:'new', stepIndex:0 })));
+          await refreshList();
+          onChange?.();
+        };
+
+        return (
+          <div className="space-y-4">
+            <div className="rounded-2xl border bg-white p-5 shadow space-y-3">
+              <div className="font-semibold">Add card</div>
+              <div className="grid md:grid-cols-2 gap-3">
+                <input className="px-3 py-2 rounded-xl border" placeholder="ES (slang)" value={form.es} onChange={e=>setForm({...form, es:e.target.value})}/>
+                <input className="px-3 py-2 rounded-xl border" placeholder="EN (meaning)" value={form.en} onChange={e=>setForm({...form, en:e.target.value})}/>
+                <input className="px-3 py-2 rounded-xl border" placeholder="Example ES" value={form.exEs} onChange={e=>setForm({...form, exEs:e.target.value})}/>
+                <input className="px-3 py-2 rounded-xl border" placeholder="Example EN" value={form.exEn} onChange={e=>setForm({...form, exEn:e.target.value})}/>
+                <input className="px-3 py-2 rounded-xl border" placeholder="Categories (comma: money,people)" value={form.cats} onChange={e=>setForm({...form, cats:e.target.value})}/>
+                <input className="px-3 py-2 rounded-xl border" placeholder="Note/register" value={form.note} onChange={e=>setForm({...form, note:e.target.value})}/>
+              </div>
+              <button onClick={add} className="px-4 py-2 rounded-xl bg-blue-600 text-white">Add</button>
+            </div>
+
+            <div className="rounded-2xl border bg-white p-5 shadow space-y-3">
+              <div className="font-semibold">Export / Import / Reset</div>
+              <div className="flex flex-wrap gap-2">
+                <button onClick={exportJSON} className="px-4 py-2 rounded-xl border bg-gray-50">Export JSON</button>
+                <label className="px-4 py-2 rounded-xl border bg-gray-50 cursor-pointer">
+                  Import JSON
+                  <input type="file" accept="application/json" className="hidden" onChange={e=>importJSON(e.target.files[0])}/>
+                </label>
+                <button onClick={resetDB} className="px-4 py-2 rounded-xl border bg-red-50 text-red-700">Reset DB</button>
+              </div>
+              <div className="text-xs text-gray-500">Tip: Export before resetting. The file is saved locally on your device.</div>
+            </div>
+
+            <div>
+              <div className="font-semibold mb-2">Cards (quick view)</div>
+              <div className="max-h-64 overflow-auto border rounded-xl">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="text-left p-2">ES</th>
+                      <th className="text-left p-2">EN</th>
+                      <th className="text-left p-2">Cats</th>
+                      <th className="text-left p-2">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {list.map(row => (
+                      <tr key={row.id} className="border-t">
+                        <td className="p-2">{row.es}</td>
+                        <td className="p-2">{row.en}</td>
+                        <td className="p-2">{(row.cats||[]).join(', ')}</td>
+                        <td className="p-2">
+                          <button onClick={()=>del(row.id)} className="px-2 py-1 rounded-lg border bg-red-50">Delete</button>
+                        </td>
+                      </tr>
+                    ))}
+                    {!list.length && <tr><td className="p-3 text-gray-500" colSpan="4">No cards yet.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // ---- Stats ----
+      function StatsTab(){
+        const canvasRef = useRef(null);
+        const chartRef = useRef(null);
+        const [summary, setSummary] = useState({ days:[], reviews:[], news:[], easeAvg:0 });
+
+        const compute = async () => {
+          const logs = await db.logs.toArray();
+          // group by date (last 14 days)
+          const map = new Map();
+          const toDay = (ts)=> new Date(new Date(ts).toDateString()).getTime();
+          const today = toDay(Date.now());
+          for (let i=13;i>=0;i--){ map.set(today - i*86400000, { review:0, startLearning:0 }); }
+          logs.forEach(l => {
+            const d = toDay(l.ts);
+            if (!map.has(d)) return;
+            if (l.action==='review') map.get(d).review += 1;
+            if (l.action==='startLearning') map.get(d).startLearning += 1;
+          });
+          const days = [...map.keys()].sort((a,b)=>a-b).map(ts=> new Date(ts).toLocaleDateString());
+          const reviews = [...map.values()].map(v=>v.review);
+          const news = [...map.values()].map(v=>v.startLearning);
+
+          // average ease across deck
+          const srs = await db.srs.toArray();
+          const avg = srs.length ? (srs.reduce((a,b)=>a+(b.ease||2.5),0)/srs.length) : 0;
+
+          setSummary({ days, reviews, news, easeAvg: avg });
+        };
+
+        useEffect(()=>{ compute(); }, []);
+        useEffect(()=>{
+          if (!canvasRef.current) return;
+          if (chartRef.current) { chartRef.current.destroy(); }
+          const ctx = canvasRef.current.getContext('2d');
+          chartRef.current = new Chart(ctx, {
+            type: 'line',
+            data: {
+              labels: summary.days,
+              datasets: [
+                { label: 'Reviews', data: summary.reviews, tension: 0.3 },
+                { label: 'New started', data: summary.news, tension: 0.3 }
+              ]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: { legend: { position: 'bottom' } },
+              scales: { y: { beginAtZero: true } }
+            }
+          });
+        }, [summary]);
+
+        return (
+          <div className="space-y-4">
+            <div className="rounded-2xl border bg-white p-4 shadow">
+              <div className="text-sm text-gray-500">Average deck ease</div>
+              <div className="text-2xl font-semibold">{summary.easeAvg.toFixed(2)}</div>
+            </div>
+
+            <div className="rounded-2xl border bg-white p-4 shadow h-64">
+              <div className="text-sm text-gray-500 mb-2">Activity (last 14 days)</div>
+              <canvas ref={canvasRef}></canvas>
+            </div>
+
+            <div className="text-xs text-gray-500">Metrics are stored locally (they never leave your browser).</div>
+          </div>
+        );
+      }
+
+      function App(){
+        const [ready, setReady] = useState(false);
+        const [activeCats, setActiveCats] = useLocalStorage('lunf_cats', CATS.map(c=>c.id));
+        const [tab, setTab] = useLocalStorage('lunf_tab', 'study'); // 'study' | 'browse' | 'manage' | 'stats'
+
+        useEffect(()=>{ (async()=>{ await seedIfNeeded(); setReady(true); })(); }, []);
+        useEffect(()=>{ if('speechSynthesis' in window) window.speechSynthesis.getVoices(); }, []);
+
+        if (!ready) return <div className="max-w-6xl mx-auto p-6">Loading…</div>;
+
+        return (
+          <div className="max-w-6xl mx-auto space-y-6">
             <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-              <h1 className="text-2xl md:text-3xl font-bold">🇦🇷 Flashcards – Lunfardo Argentino (ES ↔ EN)</h1>
-              <div className="flex gap-2">
-                <button onClick={prev} className="px-3 py-2 rounded-xl bg-gray-100 border">⟵</button>
-                <button onClick={flip} className="px-3 py-2 rounded-xl bg-blue-600 text-white">Flip</button>
-                <button onClick={next} className="px-3 py-2 rounded-xl bg-gray-100 border">⟶</button>
+              <h1 className="text-2xl md:text-3xl font-bold">🇦🇷 Lunfardo Flashcards — SRS + Categories + Stats</h1>
+              <div className="flex flex-wrap gap-2">
+                <button onClick={()=>setTab('study')}  className={`px-3 py-2 rounded-xl border ${tab==='study'?'bg-blue-600 text-white':'bg-gray-100'}`}>Study</button>
+                <button onClick={()=>setTab('browse')} className={`px-3 py-2 rounded-xl border ${tab==='browse'?'bg-blue-600 text-white':'bg-gray-100'}`}>Browse</button>
+                <button onClick={()=>setTab('manage')} className={`px-3 py-2 rounded-xl border ${tab==='manage'?'bg-blue-600 text-white':'bg-gray-100'}`}>Manage</button>
+                <button onClick={()=>setTab('stats')}  className={`px-3 py-2 rounded-xl border ${tab==='stats'?'bg-blue-600 text-white':'bg-gray-100'}`}>Stats</button>
               </div>
             </header>
 
             <section className="rounded-2xl border bg-white p-4 md:p-6 shadow">
-              <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
-                <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search: 'boludo', 'mate', 'money'…" className="w-full md:w-96 px-3 py-2 rounded-xl border"/>
-                <div className="text-sm text-gray-600">{data.length} cards • {Math.min(index+1, Math.max(data.length,1))}/{Math.max(data.length,1)}</div>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {CATS.map(c => (
-                  <button key={c.id} onClick={()=>toggleCat(c.id)} className={`px-3 py-1 rounded-full border ${activeCats.includes(c.id)?'bg-blue-100':'bg-white'}`}>{c.label}</button>
-                ))}
-                <button onClick={shuffleNow} className="ml-auto px-3 py-1 rounded-full border bg-gray-50">Shuffle</button>
-              </div>
+              <div className="text-sm text-gray-500 mb-1">Filter by categories</div>
+              <CategoryBar activeCats={activeCats} setActiveCats={setActiveCats} />
             </section>
 
-            <section>
-              {current ? (
-                <>
-                  <Card item={current} showBack={back} onFlip={flip} />
-                  <div className="mt-4 flex items-center gap-2 justify-center">
-                    <button onClick={prev} className="px-4 py-2 rounded-xl bg-gray-100 border">⟵ Previous</button>
-                    <button onClick={flip} className="px-4 py-2 rounded-xl bg-blue-600 text-white">Flip</button>
-                    <button onClick={next} className="px-4 py-2 rounded-xl bg-gray-100 border">Next ⟶</button>
-                    <button onClick={()=>current && speakES(current.es)} className="px-4 py-2 rounded-xl bg-gray-100 border" title="Escuchar (ES)">🔊</button>
-                  </div>
-                </>
-              ) : (
-                <div className="p-6 rounded-2xl border bg-white text-gray-600">No cards with these filters.</div>
-              )}
-            </section>
+            {tab === 'study'  && <StudyTab  activeCats={activeCats} />}
+            {tab === 'browse' && <BrowseTab activeCats={activeCats} />}
+            {tab === 'manage' && <ManageTab onChange={()=>{}} />}
+            {tab === 'stats'  && <StatsTab />}
 
-            <footer className="text-xs text-gray-500">Only flashcards (no extra games). Slang varies by region/tone; use context.</footer>
+            <footer className="text-xs text-gray-500">Local DB: IndexedDB (Dexie). SRS: simplified SM‑2 + learning steps. Works offline.</footer>
           </div>
         );
       }
